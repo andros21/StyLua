@@ -31,14 +31,19 @@ jobs:
             artifact-name: stylua-windows-x86_64
             artifact-alias: stylua-win64
             cargo-target: x86_64-pc-windows-msvc
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             artifact-name: stylua-linux-x86_64
             artifact-alias: stylua-linux
             cargo-target: x86_64-unknown-linux-gnu
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
+            artifact-name: stylua-linux-musl-x86_64
+            cargo-target: x86_64-unknown-linux-musl
+          - os: ubuntu-latest
             artifact-name: stylua-linux-aarch64
             cargo-target: aarch64-unknown-linux-gnu
-            linker: gcc-aarch64-linux-gnu
+          - os: ubuntu-latest
+            artifact-name: stylua-linux-musl-aarch64
+            cargo-target: aarch64-unknown-linux-musl
           - os: macos-latest
             artifact-name: stylua-macos-x86_64
             artifact-alias: stylua-macos
@@ -54,14 +59,11 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross-compilation tools
+        uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.cargo-target }}
-
-      - name: Install Linker packages
-        if: ${{ matrix.linker != '' }}
-        run: |
-          sudo apt update
-          sudo apt install ${{ matrix.linker }}
 
       - name: Build Binary (All features)
         run: cargo build --verbose --locked --release --features lua52,lua53,lua54,luau --target ${{ matrix.cargo-target }}
@@ -110,103 +112,3 @@ jobs:
           asset_path: release.zip
           asset_name: ${{ matrix.artifact-alias }}.zip
           asset_content_type: application/zip
-
-  release_cargo:
-    name: Publish to cargo
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Publish to cargo
-        run: cargo publish --verbose --locked --token ${{ secrets.CARGO_TOKEN }}
-
-  release_npm_wasm:
-    name: Publish wasm to npm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: wasm32-unknown-unknown
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "16.x"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Build WASM
-        run: |
-          chmod u+x ./wasm/build-wasm.sh
-          ./wasm/build-wasm.sh
-
-      - name: Publish to npm
-        working-directory: wasm
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  release_npm_bin:
-    name: Publish binary to npm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "16.x"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Setup README and LICENSE
-        run: |
-          cp README.md stylua-npm-bin/
-          cp LICENSE.md stylua-npm-bin/
-
-      - name: Publish to npm
-        working-directory: stylua-npm-bin
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  release_docker:
-    name: Publish image to container registry
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-        id: buildx
-        with:
-          install: true
-
-      - uses: docker/metadata-action@v5
-        id: meta
-        env:
-          DOCKER_METADATA_PR_HEAD_SHA: "true"
-        with:
-          images: johnnymorganz/stylua
-          tags: |
-            type=semver,pattern={{version}}
-            type=sha
-
-      - uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - uses: docker/build-push-action@v5
-        with:
-          push: true
-          context: .
-          file: Dockerfile
-          builder: ${{ steps.buildx.outputs.name }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha
